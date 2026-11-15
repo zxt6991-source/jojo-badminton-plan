@@ -1,0 +1,14 @@
+{
+  "source": "https://github.com/slfresh/fitmitwith-anatomy-atlas",
+  "downloadUrl": "https://raw.githubusercontent.com/slfresh/fitmitwith-anatomy-atlas/master/models/full-body-male-mobile.glb",
+  "file": "body.glb",
+  "sha256": "d80bebc4045069b660ca8e7afe599d76d15ccc7d96410b3727c600ef01d24e54",
+  "bytes": 2545068,
+  "meshes": 221,
+  "license": "CC-BY-SA-4.0",
+  "geometryChanges": "Original GLB retained byte-for-byte. Runtime component grouping, joint binding, skin weights, pose retargeting, display materials and visibility are adapted under CC BY-SA 4.0.",
+  "upstream": [
+    "Z-Anatomy",
+    "BodyParts3D"
+  ]
+}

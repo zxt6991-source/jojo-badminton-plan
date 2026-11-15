@@ -1,0 +1,11 @@
+{
+  "id": "demo",
+  "storageKey": "",
+  "width": 1920,
+  "height": 1080,
+  "captureFps": 120,
+  "frameCount": 720,
+  "durationSec": 6,
+  "hasAudio": true,
+  "timeRemapped": false
+}

@@ -1,0 +1,6 @@
+numpy>=1.26,<3
+# RTMLib declares both distributions. Match their releases to avoid cv2 ABI drift.
+opencv-python==4.14.0.94
+opencv-contrib-python==4.14.0.94
+rtmlib>=0.0.13,<1
+onnxruntime>=1.18,<2

@@ -1,0 +1,19 @@
+ANATOMICAL MOTION DISPLAY — ADAPTATION NOTICE
+
+Source geometry: Fit Mit With anatomy atlas (CC BY-SA 4.0), adapted from
+Z-Anatomy and BodyParts3D. Full original credits are in ATTRIBUTION.txt,
+Z-Anatomy-LICENSE.txt and LICENSE in this directory.
+Source: https://github.com/slfresh/fitmitwith-anatomy-atlas
+
+Changes made for this viewer:
+- Runtime skeletal rig, skin weights and anatomical component grouping.
+- Fixed-proportion pose retargeting driven by observed 2D joint directions.
+- Bone/muscle materials, visibility layers and Chinese display labels.
+- Animation, missing-joint visibility handling and schematic racket display.
+The source body.glb is preserved. Its animated anatomical adaptations and
+model-specific rig/skin definitions are available under CC BY-SA 4.0:
+https://creativecommons.org/licenses/by-sa/4.0/
+
+The model illustrates a movement. It is not a measured 3D reconstruction or
+muscle-force simulation. Depth, racket and soft-tissue deformation are
+illustrative; low-confidence observed limbs are hidden.

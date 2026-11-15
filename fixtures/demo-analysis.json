@@ -1,0 +1,249 @@
+{
+  "id": "demo",
+  "videoId": "demo",
+  "status": "succeeded",
+  "schemaVersion": "0.1.0",
+  "pipelineVersion": "demo-synthetic-0.2.0",
+  "userInput": {
+    "swingType": "smash"
+  },
+  "target": {
+    "trackId": 1,
+    "lockedBy": "auto"
+  },
+  "quality": {
+    "fpsTier": "high",
+    "view": "side",
+    "viewConfidence": 0.94,
+    "bodyVisibleRatio": 0.96,
+    "lighting": "ok",
+    "multiPerson": false,
+    "issues": [
+      {
+        "code": "synthetic_demo",
+        "severity": "info"
+      },
+      {
+        "code": "partial_occlusion",
+        "severity": "warn"
+      }
+    ],
+    "usable": true
+  },
+  "skeleton": {
+    "spec": "cwb-65",
+    "source": "mono-2d",
+    "coordSpace": "image-normalized",
+    "frameCount": 720,
+    "timestampsKey": "/api/fixtures/timestamps.f32",
+    "keypointsKey": "/api/fixtures/keypoints.f32",
+    "smoothing": {
+      "method": "one-euro",
+      "params": {
+        "minCutoff": 1,
+        "beta": 0.04,
+        "dCutoff": 1
+      }
+    }
+  },
+  "swings": [
+    {
+      "id": "demo-swing-1",
+      "type": "smash",
+      "typeConfidence": 1,
+      "handedness": "right",
+      "impact": {
+        "frame": 164,
+        "tSec": 1.3666666746139526,
+        "confidence": 0.94,
+        "evidence": [
+          "audio",
+          "wrist-peak"
+        ]
+      },
+      "phases": {
+        "backswingStartFrame": 116,
+        "impactFrame": 164,
+        "followThroughEndFrame": 214
+      }
+    },
+    {
+      "id": "demo-swing-2",
+      "type": "smash",
+      "typeConfidence": 1,
+      "handedness": "right",
+      "impact": {
+        "frame": 380,
+        "tSec": 3.1666667461395264,
+        "confidence": 0.79,
+        "evidence": [
+          "wrist-peak"
+        ]
+      },
+      "phases": {
+        "backswingStartFrame": 332,
+        "impactFrame": 380,
+        "followThroughEndFrame": 430
+      }
+    },
+    {
+      "id": "demo-swing-3",
+      "type": "smash",
+      "typeConfidence": 1,
+      "handedness": "right",
+      "impact": {
+        "frame": 596,
+        "tSec": 4.9666666984558105,
+        "confidence": 0.94,
+        "evidence": [
+          "audio",
+          "wrist-peak"
+        ]
+      },
+      "phases": {
+        "backswingStartFrame": 548,
+        "impactFrame": 596,
+        "followThroughEndFrame": 646
+      }
+    }
+  ],
+  "metrics": [
+    {
+      "id": "elbow_angle_impact",
+      "swingId": "demo-swing-1",
+      "value": 170.2129228843371,
+      "unit": "deg",
+      "confidence": 0.94,
+      "definitionVersion": "0.1.0"
+    },
+    {
+      "id": "impact_height_ratio",
+      "swingId": "demo-swing-1",
+      "value": 2.3519075594483976,
+      "unit": "ratio",
+      "confidence": 0.94,
+      "definitionVersion": "0.1.0"
+    },
+    {
+      "id": "impact_forward_offset",
+      "swingId": "demo-swing-1",
+      "value": 1.2372844780148065,
+      "unit": "ratio",
+      "confidence": 0.94,
+      "definitionVersion": "0.1.0"
+    },
+    {
+      "id": "accel_duration",
+      "swingId": "demo-swing-1",
+      "value": 0.40000003576278687,
+      "unit": "sec",
+      "confidence": 0.94,
+      "definitionVersion": "0.1.0"
+    },
+    {
+      "id": "followthrough_duration",
+      "swingId": "demo-swing-1",
+      "value": 0.4166666269302368,
+      "unit": "sec",
+      "confidence": 0.94,
+      "definitionVersion": "0.1.0"
+    },
+    {
+      "id": "elbow_angle_impact",
+      "swingId": "demo-swing-2",
+      "value": 170.2129228843371,
+      "unit": "deg",
+      "confidence": 0.79,
+      "definitionVersion": "0.1.0"
+    },
+    {
+      "id": "impact_height_ratio",
+      "swingId": "demo-swing-2",
+      "value": 2.3519075594483976,
+      "unit": "ratio",
+      "confidence": 0.79,
+      "definitionVersion": "0.1.0"
+    },
+    {
+      "id": "impact_forward_offset",
+      "swingId": "demo-swing-2",
+      "value": 1.2372844780148065,
+      "unit": "ratio",
+      "confidence": 0.79,
+      "definitionVersion": "0.1.0"
+    },
+    {
+      "id": "accel_duration",
+      "swingId": "demo-swing-2",
+      "value": 0.40000009536743164,
+      "unit": "sec",
+      "confidence": 0.79,
+      "definitionVersion": "0.1.0"
+    },
+    {
+      "id": "followthrough_duration",
+      "swingId": "demo-swing-2",
+      "value": 0.41666650772094727,
+      "unit": "sec",
+      "confidence": 0.79,
+      "definitionVersion": "0.1.0"
+    },
+    {
+      "id": "elbow_angle_impact",
+      "swingId": "demo-swing-3",
+      "value": null,
+      "unit": "deg",
+      "confidence": 0.4666666587193807,
+      "definitionVersion": "0.1.0",
+      "suppressed": {
+        "reason": "low_conf"
+      }
+    },
+    {
+      "id": "impact_height_ratio",
+      "swingId": "demo-swing-3",
+      "value": null,
+      "unit": "ratio",
+      "confidence": 0.8119999825954437,
+      "definitionVersion": "0.1.0",
+      "suppressed": {
+        "reason": "low_conf"
+      }
+    },
+    {
+      "id": "impact_forward_offset",
+      "swingId": "demo-swing-3",
+      "value": null,
+      "unit": "ratio",
+      "confidence": 0.892727253111926,
+      "definitionVersion": "0.1.0",
+      "suppressed": {
+        "reason": "low_conf"
+      }
+    },
+    {
+      "id": "accel_duration",
+      "swingId": "demo-swing-3",
+      "value": null,
+      "unit": "sec",
+      "confidence": 0.4666666587193807,
+      "definitionVersion": "0.1.0",
+      "suppressed": {
+        "reason": "low_conf"
+      }
+    },
+    {
+      "id": "followthrough_duration",
+      "swingId": "demo-swing-3",
+      "value": null,
+      "unit": "sec",
+      "confidence": 0.4666666587193807,
+      "definitionVersion": "0.1.0",
+      "suppressed": {
+        "reason": "low_conf"
+      }
+    }
+  ],
+  "diagnoses": [],
+  "stageTimingsMs": {}
+}
