@@ -4,6 +4,14 @@
 
 **当前交付是可运行的开发基线。** 内置演示为合成骨架，始终标识为演示。真实上传走 Python 推理，未配置模型时明确失败，绝不替换成演示结果。尚未拥有文档要求的 10–15 段授权、人工标注验证视频，因此不宣称达成准确率或 GPU 耗时验收目标。
 
+已按 AI 3D v1.1 方案加入 **P0 验证工具与默认关闭的 P1 基础模块**：Schema v0.2（兼容旧 v0.1）、独立 3D 子任务、按采集时间生成窗口、视角门控、文件校验及独立 Worker。真实模型坐标、授权视频 A/B、许可与用户价值验证尚未通过，两个模型适配器明确返回 `model_unavailable`，当前网页仍显示示意 3D。完整状态、配置与后续门槛见 [3D 实施记录](docs/pose3d-implementation.md)、[模型评估](docs/pose3d-model-evaluation.md) 和 [许可审计](docs/pose3d-license-review.md)。
+
+独立研究脚本已实际运行 RTMW3D-x ONNX 与官方 MMPose RTMW3D-L，对授权视频的相同 3 帧保存原始输出；MMPose 使用独立环境及本机编译的官方 CPU 算子。路径 A 还复现了 Z 解码差异，并完成 5 组显式相机假设下的 XYZ 恢复：同一帧左肘角计算值跨度约 32°，说明相机假设会明显影响结果。尚未完成相机标定或三维准确度验证，未接入产品回放。运行步骤与证据见 [真实探针记录](docs/pose3d-model-evaluation.md) 和 [相机恢复研究](docs/pose3d-camera-research.md)。
+
+连续研究已扩展到同一视频的 3 段、每段 61 帧，两条模型路径各完成 183 帧，处理失败均为 0。新增工具记录逐帧失败、逐窗耗时、骨长变化和相邻帧变化，详见 [连续窗口研究](docs/pose3d-window-research.md)。这些窗口尚未人工确认完整挥拍，也不构成三个独立场景；后续人工证据要求见 [素材与标注规范](docs/pose3d-annotation-guide.md)。
+
+研究预览可导出为本机离线 HTML，切换相同采样帧与相机假设、对照图像并旋转 XYZ 骨架；生成时重验视频授权、时间戳和数据来源。入口为 `scripts/pose3d_research_preview.py`，仍不代表已完成产品 AI 回放。
+
 默认结果页提供「身体协同」：在「3D 动作回放」中，象牙色骨骼与珊瑚色肌肉直接跟随姿态做出挥拍动作。可播放、慢放、逐帧，旋转视角看身体各部位的运动，并使用同一时间轴切回视频/二维骨架核对。骨骼和肌肉使用真实解剖网格，通过运行时骨架绑定驱动；动作来自当前片段的二维关键点。原有 5 项测量仍在「基础指标」。**尚未完成真实三维重建**，不估算受力、肌肉激活或发力效率。详见 [3D 查看器说明](docs/3d-viewer.md) 与 [身体协同说明](docs/biomechanics-notes.md)。
 
 ## 启动 Web 与 API
@@ -52,7 +60,7 @@ POSE_DEVICE=cpu
 | --- | --- |
 | `apps/web` | 上传续传、动作选择、目标点选、任务状态、叠加骨架、逐帧/慢放、事件时间轴、指标与抑制原因、肘角曲线、人工标帧 |
 | `apps/gateway` | 上传分片与完成校验、文件持久化、串行任务队列、任务幂等、重启恢复、显式重试、结果校验、TS 指标计算 |
-| `packages/schema` | PDF 中的 v0.1 类型、运行时校验、cwb-65 索引、二进制校验 |
+| `packages/schema` | v0.2 类型与旧 v0.1 兼容校验、cwb-65 索引、独立 3D 元数据及 Float32 LE 校验 |
 | `packages/metrics` | 5 个指标、采集时间计算、画幅比例修正、置信度与帧率/视角抑制 |
 | `worker` | 摄取/转码、RTMLib 逐帧人体姿态、连续目标跟踪、平滑与短缺失插值、质量报告、音视频融合检测 |
 | `fixtures` | 720 帧 / 120fps / 3 次挥拍的合成样例及生成器 |
@@ -66,6 +74,7 @@ POSE_DEVICE=cpu
 ```bash
 npm run check
 .venv/bin/python -m unittest discover -s tests/worker -v
+npm run test:pose3d-evaluation
 ```
 
 自动化检查覆盖数据结构与二进制损坏、真实时间戳、指标几何与抑制、分片续传/任务幂等、Worker 数值算法、目标跟踪及事件评测。CI 对每次提交运行构建与这些测试。
@@ -94,6 +103,10 @@ npm run check
 | `GET /api/analyses/:id` | 状态和结果 |
 | `POST /api/analyses/:id/retry` | 重试失败任务 |
 | `POST /api/analyses/:id/annotations` | 保存人工击球帧，传入 `{ "frame": 120 }` |
+| `POST /api/analyses/:id/pose3d` | 独立 3D 研究子任务；默认禁用，支持 swing-windows / manual / full |
+| `GET /api/analyses/:id/pose3d` | 查询 3D 状态、窗口、来源、质量或错误 |
+| `POST /api/analyses/:id/pose3d/retry` | 仅重试失败或质量拒绝的 3D 子任务 |
+| `POST /api/analyses/:id/pose3d/cancel` | 取消排队或运行中的 3D 子任务，不改变 2D 状态 |
 
 `data/` 保存原视频、分片、JSON 状态、代理视频和骨架文件，重启保留。网关为单进程本地开发队列，不适合多个进程同时访问同一数据目录。上线时需替换为共享任务队列、数据库和对象存储，并接入访问控制和数据生命周期管理。
 

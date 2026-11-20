@@ -1,0 +1,15 @@
+{
+  "pipelineVersion": "pose3d-0.1.0",
+  "viewGatePolicyVersion": "view-gate-experimental-0.1.0",
+  "validationStatus": "unverified",
+  "modelId": "rtmw3d-rtmlib-x",
+  "runtime": "rtmlib-onnx",
+  "modelVersion": "unverified",
+  "weightsPath": null,
+  "windows": {"preSec": null, "postSec": null, "marginSec": 0},
+  "limits": {"maxFrames": 20000, "maxFullFrames": 7200, "maxFullDurationSec": 60, "maxWindows": 100},
+  "viewGate": {"minConfidence": 0.6, "limitedPlayback": false},
+  "quality": {"minConfidence": 0.5, "minUsableFrameRatio": 0.5, "maxBoneLengthDriftRatio": 0.5},
+  "temporal": {"enabled": false, "maxGapSec": 0.05, "minCutoff": 1.7, "beta": 2, "derivativeCutoff": 1, "observationWeight": 0.5},
+  "association": {"minConfidence": 0.4, "minCommonJoints": 5, "maxMeanDistance": 0.15, "ambiguityMargin": 0.03, "maxCenterJump": 0.15}
+}

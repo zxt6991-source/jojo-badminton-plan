@@ -1,5 +1,8 @@
-/** Frozen P0a transport contract. Breaking changes require a new schemaVersion. */
-export const SCHEMA_VERSION = '0.1.0' as const;
+/** Additive v0.2 contract. Historical v0.1 analyses retain their original version. */
+import {parsePose3DResult, type Pose3DResult} from './pose3d.ts';
+export * from './pose3d.ts';
+export const SCHEMA_VERSION = '0.2.0' as const;
+export const LEGACY_SCHEMA_VERSION = '0.1.0' as const;
 export type ViewAngle = 'side' | 'back' | 'front' | 'oblique' | 'unknown';
 export type SwingType = 'smash' | 'clear' | 'drop' | 'drive' | 'net' | 'unknown';
 export type PoseSource = 'mono-2d' | 'mono-3d' | 'multi-view' | 'imu-fused';
@@ -14,7 +17,7 @@ export interface Analysis {
   schemaVersion: string; pipelineVersion: string;
   userInput: {swingType?: SwingType; targetPoint?: [number, number]};
   target?: {trackId: number; lockedBy: 'auto' | 'user'};
-  quality?: QualityReport; skeleton?: SkeletonRef;
+  quality?: QualityReport; skeleton?: SkeletonRef; pose3d?: Pose3DResult;
   swings: SwingEvent[]; metrics: MetricResult[]; diagnoses: Diagnosis[];
   stageTimingsMs: Record<string, number>;
 }
@@ -93,7 +96,7 @@ export function validateVideoAsset(value: unknown): value is VideoAsset { try {p
 export function parseAnalysis(value: unknown): Analysis {
   const a = obj(value,'analysis');
   ['id','videoId','pipelineVersion'].forEach(k=>str(a[k],`analysis.${k}`));
-  one(a.schemaVersion,[SCHEMA_VERSION],'analysis.schemaVersion');
+  one(a.schemaVersion,[LEGACY_SCHEMA_VERSION,SCHEMA_VERSION],'analysis.schemaVersion');
   one(a.status,['queued','running','succeeded','failed','rejected_quality'],'analysis.status');
   const input = obj(a.userInput,'analysis.userInput');
   optional(input,'swingType','analysis.userInput',(v,p)=>one(v,swingTypes,p));
@@ -111,6 +114,12 @@ export function parseAnalysis(value: unknown): Analysis {
     one(s.coordSpace,['image-normalized'],`${p}.coordSpace`); num(s.frameCount,`${p}.frameCount`,1,Infinity,true);
     str(s.timestampsKey,`${p}.timestampsKey`); str(s.keypointsKey,`${p}.keypointsKey`); optional(s,'keypoints3dKey',p,str);
     const smooth=obj(s.smoothing,`${p}.smoothing`); one(smooth.method,['one-euro'],`${p}.smoothing.method`); numbers(smooth.params,`${p}.smoothing.params`);
+  });
+  optional(a,'pose3d','analysis',(value,p)=>{
+    if(a.schemaVersion!==SCHEMA_VERSION) fail(p,'schemaVersion 0.2.0 for 3D metadata');
+    if(a.status!=='succeeded'||!a.skeleton) fail(p,'a succeeded 2D analysis with a skeleton');
+    const pose=parsePose3DResult(value);
+    if(pose.frameCount!==(a.skeleton as SkeletonRef).frameCount) fail(`${p}.frameCount`,'same frameCount as the 2D skeleton');
   });
   const ids=new Set<string>();
   array(a.swings,'analysis.swings',(v,p)=>{
@@ -136,6 +145,13 @@ export function parseAnalysis(value: unknown): Analysis {
   return value as Analysis;
 }
 export function validateAnalysis(value: unknown): value is Analysis { try {parseAnalysis(value); return true;} catch {return false;} }
+
+/** Validate the complete legacy record; do not relabel or silently infer new fields. */
+export function parseLegacyAnalysis(value: unknown): Analysis {
+  const analysis=parseAnalysis(value);
+  if(analysis.schemaVersion!==LEGACY_SCHEMA_VERSION) fail('analysis.schemaVersion',LEGACY_SCHEMA_VERSION);
+  return analysis;
+}
 
 /** Reject corrupt files at the language boundary; absent points must be NaN,NaN,0. */
 export function validateSkeletonData(timestamps: Float32Array, keypoints: Float32Array, frameCount: number): void {

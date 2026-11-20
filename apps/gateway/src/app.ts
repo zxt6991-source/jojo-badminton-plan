@@ -10,6 +10,7 @@ import {SCHEMA_VERSION,parseAnalysis,parseVideoAsset,validateSkeletonData} from 
 import {calculateMetrics} from '@badminton/metrics';
 import {Store} from './store.js';
 import {resolveWorkerPython,workerFailureMessage} from './worker-runtime.js';
+import {installPose3DJobs,type Pose3DOptions} from './pose3d-jobs.js';
 
 const ROOT=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../../..');
 const PIPELINE_VERSION=JSON.parse(await readFile(path.join(ROOT,'pipeline-version.json'),'utf8')).pipelineVersion as string;
@@ -17,7 +18,7 @@ const CHUNK_SIZE=4*1024*1024, MAX_SIZE=500*1024*1024;
 type Upload={id:string;fileName:string;size:number;mimeType:string;fingerprint:string;chunkSize:number;uploadedChunks:number[];videoId?:string;createdAt:string};
 type VideoRecord={id:string;fileName:string;inputPath:string;size:number};
 type RecordData={id:string;status:Analysis['status'];createdAt:string;fileName:string;analysis:Analysis;video?:VideoAsset;error?:string;errorDetail?:string;errorCode?:string;attempts:number;captureFps?:number};
-type Options={dataDir?:string;runWorker?:boolean;workerScript?:string};
+type Options={dataDir?:string;runWorker?:boolean;workerScript?:string;pose3d?:Pose3DOptions};
 const bad=(message:string,status=400)=>Object.assign(new Error(message),{status});
 const wrap=(fn:(req:Request,res:Response)=>Promise<unknown>)=>(req:Request,res:Response,next:NextFunction)=>{Promise.resolve(fn(req,res)).catch(next);};
 const asFloat=(b:Buffer)=>new Float32Array(b.buffer.slice(b.byteOffset,b.byteOffset+b.byteLength));
@@ -72,6 +73,7 @@ export async function createApp(options:Options={}) {
   // Recover interrupted jobs once; explicit failures require the retry endpoint.
   for(const r of await store.list<RecordData>('analyses')){if(r.status==='running'){r.status=r.attempts<2?'queued':'failed';r.analysis.status=r.status;r.error=r.status==='failed'?'任务多次被中断，请重试':undefined;await store.put('analyses',r.id,r);}}
   const timer=setInterval(()=>void drain().catch(console.error),1000);timer.unref();void drain();
+  const pose3d=await installPose3DJobs(app,store,ROOT,{runWorker:options.runWorker,...options.pose3d});
   app.get('/api/health',(_req,res)=>res.json({ok:true,schemaVersion:SCHEMA_VERSION,pipelineVersion:PIPELINE_VERSION,queue:active?'running':'idle'}));
   app.use('/api/fixtures',express.static(path.join(ROOT,'fixtures'),{fallthrough:false}));
   app.get('/api/demo',wrap(async(_req,res)=>{const [video,analysis]=await Promise.all(['demo-video.json','demo-analysis.json'].map(f=>readFile(path.join(ROOT,'fixtures',f),'utf8').then(JSON.parse)));res.json({video,analysis,demo:true});}));
@@ -103,7 +105,7 @@ export async function createApp(options:Options={}) {
     const r=await locked(`analysis:${id}`,async()=>{const old=await store.get<RecordData>('analyses',id);if(old)return old;const analysis:Analysis={id,videoId,status:'queued',schemaVersion:SCHEMA_VERSION,pipelineVersion:PIPELINE_VERSION,userInput:{swingType,...(targetPoint?{targetPoint}:{})},swings:[],metrics:[],diagnoses:[],stageTimingsMs:{}};const value:RecordData={id,status:'queued',createdAt:new Date().toISOString(),fileName:video.fileName,analysis,attempts:0,captureFps};await store.put('analyses',id,value);return value;});res.status(202).json({id:r.id,status:r.status});void drain();
   }));
   app.get('/api/analyses',wrap(async(_req,res)=>res.json((await store.list<RecordData>('analyses')).sort((a,b)=>b.createdAt.localeCompare(a.createdAt)).map(({id,status,createdAt,fileName,error})=>({id,status,createdAt,fileName,error})))));
-  app.get('/api/analyses/:id',wrap(async(req,res)=>{const r=await getRecord(String(req.params.id));res.json({video:r.video,analysis:r.analysis,error:r.error,errorDetail:r.errorDetail,errorCode:r.errorCode});}));
+  app.get('/api/analyses/:id',wrap(async(req,res)=>{const r=await getRecord(String(req.params.id));res.json({video:r.video,analysis:await pose3d.attach(r.analysis),error:r.error,errorDetail:r.errorDetail,errorCode:r.errorCode});}));
   app.post('/api/analyses/:id/retry',wrap(async(req,res)=>{const id=String(req.params.id);const r=await locked(`analysis:${id}`,async()=>{const r=await getRecord(id);if(r.status!=='failed')throw bad('只有失败的任务可以重试',409);r.status='queued';r.analysis.status='queued';r.error=undefined;r.errorDetail=undefined;r.errorCode=undefined;await store.put('analyses',id,r);return r;});res.status(202).json({id:r.id,status:r.status});void drain();}));
   app.post('/api/analyses/:id/annotations',wrap(async(req,res)=>{const id=String(req.params.id);const {frame}=req.body??{};
     if(id==='demo'){throw bad('演示结果仅供预览，请上传视频后保存标注',409);}
@@ -132,6 +134,6 @@ export async function createApp(options:Options={}) {
   app.use('/data/results',express.static(path.join(store.root,'results'),{dotfiles:'deny',fallthrough:false}));
   app.use('/api',(_req,res)=>res.status(404).json({error:'API 不存在'}));
   const web=path.join(ROOT,'apps/web/dist');try{await stat(web);app.use(express.static(web));app.get('/{*path}',(_req,res)=>res.sendFile(path.join(web,'index.html')));}catch{}
-  app.use((err:Error & {status?:number;type?:string},_req:Request,res:Response,_next:NextFunction)=>{res.status(err.status??500).json({error:err.type==='entity.too.large'?'上传分片过大':err.message});});
-  return {app,store,close:()=>{closed=true;clearInterval(timer);child?.kill('SIGTERM');}};
+  app.use((err:Error & {status?:number;type?:string;errorCode?:string},_req:Request,res:Response,_next:NextFunction)=>{res.status(err.status??500).json({error:err.type==='entity.too.large'?'上传分片过大':err.message,errorCode:err.errorCode});});
+  return {app,store,close:()=>{closed=true;clearInterval(timer);child?.kill('SIGTERM');pose3d.close();}};
 }

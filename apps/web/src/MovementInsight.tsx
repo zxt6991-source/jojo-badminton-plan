@@ -2,6 +2,7 @@ import {lazy,Suspense,useMemo,useState,type CSSProperties,type ReactNode} from '
 import type {Analysis,SwingEvent,VideoAsset} from '@badminton/schema';
 import {computeMovementAnalysis,REGION_COLORS,type BodyRegion,type MovementPhaseId} from '@badminton/metrics';
 import Icon from './Icon';
+import Pose3DNotice from './Pose3DNotice';
 import './movement.css';
 const Body3DViewer=lazy(()=>import('./Body3DViewer'));
 
@@ -35,6 +36,7 @@ export default function MovementInsight({video,analysis,event,points,timestamps,
   const maxSpeed=Math.max(1,...motion.segments.flatMap(s=>s.samples.map(p=>p.value??0)));
   const plot=(samples:typeof motion.segments[number]['samples'])=>{let d='',connected=false;for(const s of samples){if(s.value===null){connected=false;continue;}d+=`${connected?'L':'M'}${(12+(s.tSec-t0)/span*576).toFixed(2)},${(56-s.value/maxSpeed*42).toFixed(2)} `;connected=true;}return d;};
   return <section className="movement-insight" aria-labelledby="movement-title">
+    {!demo&&<Pose3DNotice analysisId={analysis.id} initial={analysis.pose3d}/>}
     <div className="movement-heading"><div><span className="eyebrow">READ THE WHOLE MOVEMENT</span><h2 id="movement-title">身体如何完成这一拍</h2><p>让骨骼与肌肉跟随挥拍，慢放看清身体各部位怎样衔接。</p></div><span className="movement-scope"><Icon name="eye" size={15}/>3D 动作 · 2D 测量</span></div>
     <div className="movement-phases" aria-label="动作观察位置">{(['prepare','accelerate','impact','follow'] as MovementPhaseId[]).map((id,i)=>{const p=motion.phases.find(x=>x.id===id);return <button key={id} className={phase===id?'selected':''} disabled={!p} aria-pressed={phase===id} onClick={()=>p&&onSeek(id==='accelerate'?Math.round((p.startFrame+p.endFrame)/2):id==='follow'?Math.round((p.startFrame+p.endFrame)/2):p.startFrame)}><span className="phase-index">0{i+1}</span><span><strong>{id==='accelerate'?'挥拍过程':{prepare:'引拍起点',impact:'击球',follow:'随挥'}[id]}</strong><small>{p?(p.startFrame===p.endFrame?relative(timestamps[p.startFrame],event.impact.tSec):`${(timestamps[p.endFrame]-timestamps[p.startFrame]).toFixed(2)} s 观察段`):'边界未识别'}</small></span><Icon name="chevron" size={15}/></button>;})}</div>
     <div className="movement-stage">

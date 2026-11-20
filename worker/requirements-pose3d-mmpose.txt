@@ -1,0 +1,28 @@
+# Primary dependency versions actually installed in .venv-pose3d-b on macOS arm64.
+# Follow docs/pose3d-mmpose-environment.md for staged installation; chumpy requires
+# --no-build-isolation after its build dependencies are available.
+# Never install this file into the existing 2D .venv.
+#
+# Required separately, from verified OFFICIAL LOCAL source artifacts:
+#   mmpose==1.3.2: pip install --no-deps --no-build-isolation --use-pep517 <source>
+#   mmcv==2.1.0: build official CPU ops using MMCV_WITH_OPS=1, then install the
+#               local wheel with --no-deps. Do not assume a PyPI arm64 wheel.
+# mmcv-lite does not satisfy this pipeline and must not coexist with mmcv.
+# A full transitive freeze and actual probe reports are distinct evidence.
+numpy==1.26.4
+torch==2.2.2
+torchvision==0.17.2
+mmengine==0.10.5
+mmdet==3.3.0
+opencv-python==4.10.0.84
+scipy==1.13.1
+matplotlib==3.9.2
+chumpy==0.70
+xtcocotools==1.14.3
+json_tricks==3.17.3
+munkres==1.1.4
+Cython==3.0.11
+wheel==0.44.0
+setuptools==80.9.0
+# Keep this pin: MMEngine 0.10.5 imports pkg_resources. A newer setuptools that
+# removes it can break imports even when pip's dependency resolver succeeds.

@@ -159,7 +159,7 @@ export default function Body3DViewer(props:Props){
   function toggle(){if(loop&&(frame<start||frame>=end))onFrame(start);else if(frame>=timestamps.length-1)onFrame(0);setPlaying(v=>!v);}
   function chooseView(view:CameraView){setCameraView(view);runtime.current?.preset(view);}
   return <section className="body3d-card" aria-label="3D 身体运动视图">
-    <div className="body3d-heading"><span><Icon name="bone" size={18}/>骨骼与肌肉 · 动作回放</span><span className="body3d-flag">二维姿态驱动 3D 动画</span></div>
+    <div className="body3d-heading"><span><Icon name="bone" size={18}/>骨骼与肌肉 · 动作回放</span><span className="body3d-flag">{demo?'示意 3D（合成数据）':'示意 3D · 二维姿态驱动'}</span></div>
     <div className="body3d-layers" aria-label="动作模型显示层">{(['reference','muscles','skeleton'] as Layer[]).map(value=><button key={value} aria-pressed={layer===value} onClick={()=>setLayer(value)}>{{reference:'骨骼 + 主要肌群',muscles:'全部肌肉',skeleton:'仅骨骼'}[value]}</button>)}</div>
     <div className="body3d-stage"><div className="body3d-canvas" ref={host}/>
       {!ready&&!error&&<div className="body3d-loading" role="status"><span className="spinner"/>正在绑定骨骼与肌肉动作…</div>}
@@ -174,7 +174,7 @@ export default function Body3DViewer(props:Props){
     <div className="body3d-scrubber"><input type="range" min={0} max={timestamps.length-1} value={frame} aria-label="3D 动作时间轴" onChange={e=>seek(Number(e.target.value))}/></div>
     <div className="body3d-adjust"><button aria-pressed={loop} onClick={()=>setLoop(v=>!v)}><Icon name="refresh" size={13}/>循环这一拍</button><label>肌肉透明度<input aria-label="肌肉透明度" type="range" min={15} max={100} value={opacity*100} onChange={e=>setOpacity(Number(e.target.value)/100)} disabled={layer==='skeleton'}/></label></div>
     <div className="body3d-regions" aria-label="3D 身体区域"><button aria-pressed={focus==='all'} className={focus==='all'?'active':''} onClick={()=>onFocus('all')}>全身</button>{(Object.keys(regionNames) as BodyRegion[]).map(id=><button key={id} style={{'--part-color':REGION_COLORS[id]} as CSSProperties} className={focus===id?'active':''} aria-pressed={focus===id} onClick={()=>onFocus(focus===id?'all':id)}><i/>{regionNames[id]}</button>)}</div>
-    <p className="body3d-note"><Icon name="info" size={14}/><span>骨骼与肌肉随动作同步运动。头部转向、前后深度及球拍位置为示意，颜色不表示肌肉受力。{[5,6,7,8,9,10,11,12,13,14,15,16].some(id=>!currentPose.joints[id].visible)?' 遮挡部位已隐藏。':''}</span></p>
+    <p className="body3d-note"><Icon name="info" size={14}/><span>按解剖分组着色，不表示激活强度。头部转向、前后深度及球拍位置为示意。{[5,6,7,8,9,10,11,12,13,14,15,16].some(id=>!currentPose.joints[id].visible)?' 遮挡部位已隐藏。':''}</span></p>
     <details className="body3d-credits"><summary>模型来源</summary><p>模型源自 <a href="https://github.com/slfresh/fitmitwith-anatomy-atlas" target="_blank" rel="noreferrer">Fit Mit With / Z-Anatomy / BodyParts3D</a>（CC BY-SA 4.0），加入关节绑定、蒙皮权重及动作映射。<a href="/models/anatomy/ATTRIBUTION.txt" target="_blank" rel="noreferrer">原始署名</a> · <a href="/models/anatomy/MOTION-NOTICE.txt" target="_blank" rel="noreferrer">动作模型说明</a></p></details>
   </section>;
 }

@@ -19,6 +19,7 @@ analysis = json.loads((root / 'fixtures/demo-analysis.json').read_text())
 video['id'] = args.video_id
 analysis['id'] = args.analysis_id
 analysis['videoId'] = args.video_id
+analysis['schemaVersion'] = '0.2.0'
 analysis['pipelineVersion'] = json.loads((root / 'pipeline-version.json').read_text())['pipelineVersion']
 analysis['metrics'] = []
 if mode == 'dependencies':

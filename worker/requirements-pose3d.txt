@@ -1,0 +1,7 @@
+# Observed working versions for the CPU RAW probe on macOS/Python 3.11.
+# Install in a separate environment; this is not a production model approval.
+# The ONNX model is a separately downloaded, hash-checked research artifact.
+numpy==2.4.6
+onnxruntime==1.32.0
+rtmlib==0.0.16
+opencv-python==4.14.0.94

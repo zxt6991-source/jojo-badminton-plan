@@ -203,7 +203,7 @@ def run(args):
     output = Path(args.output_dir)
     output.mkdir(parents=True, exist_ok=True)
     analysis = {"id": args.analysis_id, "videoId": args.video_id, "status": 'running',
-                "schemaVersion": '0.1.0', "pipelineVersion": pipeline_version(),
+                "schemaVersion": '0.2.0', "pipelineVersion": pipeline_version(),
                 "userInput": {"swingType": args.swing_type}, "swings": [], "metrics": [], "diagnoses": [], "stageTimingsMs": {}}
     if args.target_point:
         analysis['userInput']['targetPoint'] = args.target_point

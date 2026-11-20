@@ -13,7 +13,8 @@
     "dev:web": "npm run dev --workspace @badminton/web",
     "build": "tsc --noEmit && npm run build --workspace @badminton/web",
     "test": "tsx --test packages/*/test/*.test.ts apps/gateway/test/*.test.ts",
-    "test:worker": "python3 -m unittest discover -s tests/worker -v",
+    "test:worker": "node scripts/test-python.mjs tests/worker",
+    "test:pose3d-evaluation": "node scripts/test-python.mjs tests/pose3d",
     "check": "npm run build && npm test",
     "start": "tsx apps/gateway/src/index.ts"
   },

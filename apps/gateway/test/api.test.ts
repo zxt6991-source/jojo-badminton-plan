@@ -29,7 +29,7 @@ test('rejects invalid inputs and missing resources with JSON errors',async()=>{
   assert.equal((await json(s.base,'/api/analyses',{videoId:'nope',swingType:'clear'})).status,404);
   assert.equal((await json(s.base,'/api/analyses/missing')).status,404);
   assert.equal((await json(s.base,'/api/no-such-api')).status,404);
-  const health=await (await json(s.base,'/api/health')).json();assert.equal(health.schemaVersion,'0.1.0');
+  const health=await (await json(s.base,'/api/health')).json();assert.equal(health.schemaVersion,'0.2.0');
  }finally{await s.cleanup();}
 });
 
