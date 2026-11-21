@@ -2,9 +2,9 @@ import {useEffect,useLayoutEffect,useMemo,useRef,useState,type CSSProperties} fr
 import * as THREE from 'three';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
-import type {Analysis,SwingEvent,VideoAsset} from '@badminton/schema';
+import type {Analysis,ReplayProfile,SwingEvent,VideoAsset} from '@badminton/schema';
 import {REGION_COLORS,type BodyRegion} from '@badminton/metrics';
-import {createPose3DSequence} from './pose3d';
+import {createPose3DSequence,createReplaySampler} from './pose3d';
 import {createAnatomyRig,type AnatomyRig} from './anatomyRig';
 import {describeAnatomyPart,type AnatomyPart} from './anatomyCatalog';
 import Icon from './Icon';
@@ -16,15 +16,14 @@ type Layer='reference'|'muscles'|'skeleton';
 interface Props {
   video:VideoAsset;analysis:Analysis;event:SwingEvent;points:Float32Array;timestamps:Float32Array;
   frame:number;onSeek:(frame:number)=>void;onFrame:(frame:number)=>void;seekToken:number;
-  focus:Focus;onFocus:(region:Focus)=>void;demo:boolean;
+  focus:Focus;onFocus:(region:Focus)=>void;demo:boolean;replayProfile?:ReplayProfile;
 }
 interface SceneApi {update:()=>void;preset:(view:CameraView)=>void;zoom:(factor:number)=>void}
 const regionNames:Record<BodyRegion,string>={legs:'下肢',trunk:'躯干',upperArm:'上臂',forearm:'前臂'};
 const up=new THREE.Vector3(0,1,0);
-function closestFrame(times:Float32Array,time:number){let lo=0,hi=times.length-1;while(lo<hi){const mid=(lo+hi)>>>1;if(times[mid]<time)lo=mid+1;else hi=mid;}return lo>0&&Math.abs(times[lo-1]-time)<Math.abs(times[lo]-time)?lo-1:lo;}
 
 export default function Body3DViewer(props:Props){
-  const {video,analysis,event,points,timestamps,frame,onSeek,onFrame,seekToken,focus,onFocus,demo}=props;
+  const {video,analysis,event,points,timestamps,frame,onSeek,onFrame,seekToken,focus,onFocus,demo,replayProfile='balanced'}=props;
   const host=useRef<HTMLDivElement>(null),runtime=useRef<SceneApi|null>(null),latest=useRef(props);latest.current=props;
   const [playing,setPlaying]=useState(false),[speed,setSpeed]=useState(.5),[layer,setLayer]=useState<Layer>('reference');
   const [trail,setTrail]=useState(true),[racket,setRacket]=useState(true),[opacity,setOpacity]=useState(1),[loop,setLoop]=useState(true);
@@ -32,32 +31,24 @@ export default function Body3DViewer(props:Props){
   const [selected,setSelected]=useState<AnatomyPart|null>(null);
   const visual=useRef({layer,trail,racket,opacity,selected});visual.current={layer,trail,racket,opacity,selected};
   const sequence=useMemo(()=>createPose3DSequence(video,points),[video,points]);
+  const sampler=useMemo(()=>createReplaySampler(sequence,timestamps,video.captureFps,replayProfile),[sequence,timestamps,video.captureFps,replayProfile]);
+  const currentSampler=useRef(sampler);currentSampler.current=sampler;
   const time=timestamps[frame]??0,duration=timestamps[timestamps.length-1]??video.durationSec;
-  const currentPose=useMemo(()=>sequence.frame(frame),[sequence,frame]);
+  const currentPose=useMemo(()=>sampler.frame(frame),[sampler,frame]);
   const start=event.phases.backswingStartFrame??Math.max(0,event.impact.frame-Math.round(video.captureFps*.5));
   const end=event.phases.followThroughEndFrame??Math.min(timestamps.length-1,event.impact.frame+Math.round(video.captureFps*.5));
 
-  useLayoutEffect(()=>{setPlaying(false);},[seekToken,analysis.id,event.id]);
+  const playback=useRef<{time:number;previous:number}|null>(null);
+  const transport=useRef({speed,loop,start,end});transport.current={speed,loop,start,end};
+  function pause(){playback.current=null;setPlaying(false);}
+  useLayoutEffect(()=>{pause();runtime.current?.update();},[seekToken,analysis.id,event.id]);
   useEffect(()=>{setSelected(p=>p&&p.region!==focus?null:p);},[focus]);
   useEffect(()=>{setSelected(null);},[event.id]);
-  useEffect(()=>{
-    if(!playing||error||!ready)return;
-    const generation={seekToken:latest.current.seekToken,analysisId:latest.current.analysis.id,eventId:latest.current.event.id};
-    let active=true,handle=0,previous=performance.now(),clock=latest.current.timestamps[latest.current.frame]??0;
-    const tick=(now:number)=>{
-      const current=latest.current;if(!active)return;
-      if(current.seekToken!==generation.seekToken||current.analysis.id!==generation.analysisId||current.event.id!==generation.eventId){setPlaying(false);return;}
-      clock+=Math.min(.15,(now-previous)/1000)*speed;previous=now;
-      const t=current.timestamps,limit=loop?t[end]:t[t.length-1];
-      if(clock>=limit){if(loop)clock=t[start]+((clock-t[start])%Math.max(.001,t[end]-t[start]));else{current.onFrame(t.length-1);setPlaying(false);return;}}
-      current.onFrame(closestFrame(t,clock));handle=requestAnimationFrame(tick);
-    };handle=requestAnimationFrame(tick);return()=>{active=false;cancelAnimationFrame(handle);};
-  },[playing,speed,error,ready,loop,start,end]);
-  useEffect(()=>{runtime.current?.update();},[frame,focus,layer,trail,racket,opacity,selected,event]);
+  useLayoutEffect(()=>{if(!playback.current)runtime.current?.update();},[frame,focus,layer,trail,racket,opacity,selected,event,sampler,playing]);
 
   useEffect(()=>{
     const container=host.current;if(!container)return;
-    setReady(false);setError('');setPlaying(false);setSelected(null);
+    setReady(false);setError('');pause();setSelected(null);
     const abort=new AbortController();let disposed=false,lost=false,raf=0,rig:AnatomyRig|null=null;
     let renderer:THREE.WebGLRenderer;
     try{renderer=new THREE.WebGLRenderer({antialias:true,powerPreference:'high-performance'});}
@@ -88,13 +79,21 @@ export default function Body3DViewer(props:Props){
     const strings:number[]=[];for(let i=-4;i<=4;i++){const a=i*.019,b=Math.sqrt(.01-a*a);strings.push(a,.42-b*1.3,0,a,.42+b*1.3,0,-b,.42+a*1.3,0,b,.42+a*1.3,0);}
     const stringGeo=geo(new THREE.BufferGeometry());stringGeo.setAttribute('position',new THREE.Float32BufferAttribute(strings,3));racketGroup.add(new THREE.LineSegments(stringGeo,mat(new THREE.LineBasicMaterial({color:'#a6b09e',transparent:true,opacity:.6}))));
     const wristCache=new Map<number,{left:THREE.Vector3|null;right:THREE.Vector3|null}>();
-    function collectWrist(f:number){if(!rig)return;const joints=rig.sample(sequence.frame(f));wristCache.set(f,{left:joints[9]?.clone()??null,right:joints[10]?.clone()??null});}
-    const update=()=>{
+    let trailSampler=currentSampler.current;
+    let lastSelection:AnatomyPart|null|undefined,lastOpacity=-1;
+    function collectWrist(f:number){if(!rig)return;const joints=rig.sample(trailSampler.frame(f));wristCache.set(f,{left:joints[9]??null,right:joints[10]??null});}
+    const update=(sampleTime?:number)=>{
       if(!rig||disposed)return;
-      const p=latest.current,v=visual.current,pose=sequence.frame(p.frame);
+      const p=latest.current,v=visual.current,sampler=currentSampler.current;
+      if(sampler!==trailSampler){wristCache.clear();trailSampler=sampler;}
+      const sample=sampleTime===undefined?{index:p.frame,left:p.frame,pose:sampler.frame(p.frame)}:sampler.atTime(sampleTime);
+      const {pose,index,left}=sample,renderTime=sampleTime??p.timestamps[index];
       const wristId=p.event.handedness==='left'?9:p.event.handedness==='right'?10:-1;
-      let first=p.frame;while(first>0&&p.timestamps[p.frame]-p.timestamps[first-1]<=.2)first--;
-      if(v.trail&&wristId>=0)for(let f=first;f<=p.frame;f++)if(!wristCache.has(f))collectWrist(f);
+      let first=left;while(first>0&&renderTime-p.timestamps[first-1]<=.2)first--;
+      if(v.trail&&wristId>=0){
+        for(const f of wristCache.keys())if(f<first||f>left)wristCache.delete(f);
+        for(let f=first;f<=left;f++)if(!wristCache.has(f))collectWrist(f);
+      }
       rig.update(pose);
       let visibleMuscles=0;
       for(const {mesh,part,material} of parts){
@@ -102,31 +101,56 @@ export default function Body3DViewer(props:Props){
         const layerVisible=part.kind==='bone'||v.layer!=='skeleton'&&(p.focus!=='all'?regionMatch:v.layer==='muscles'||part.referenceVisible);
         mesh.visible=mesh.userData.poseVisible!==false&&layerVisible;
         if(part.kind==='muscle'&&mesh.visible)visibleMuscles++;
-        const chosen=v.selected?.id===part.id;
-        material.color.set(part.kind==='bone'?'#d4cba0':part.kind==='connective'?'#ded5be':chosen?'#bb574c':'#cf7c74');
-        material.emissive.set(chosen?'#70251d':0);material.emissiveIntensity=chosen?.1:0;
-        material.opacity=part.kind==='bone'?1:v.opacity;material.transparent=material.opacity<1;material.depthWrite=material.opacity>=.98;
+        if(v.selected!==lastSelection||v.opacity!==lastOpacity){
+          const chosen=v.selected?.id===part.id;
+          material.color.set(part.kind==='bone'?'#d4cba0':part.kind==='connective'?'#ded5be':chosen?'#bb574c':'#cf7c74');
+          material.emissive.set(chosen?'#70251d':0);material.emissiveIntensity=chosen?.1:0;
+          material.opacity=part.kind==='bone'?1:v.opacity;material.transparent=material.opacity<1;material.depthWrite=material.opacity>=.98;
+        }
       }
+      lastSelection=v.selected;lastOpacity=v.opacity;
       const wrist=wristId<0?null:rig.jointPositions[wristId],elbow=wristId<0?null:rig.jointPositions[wristId-2];
-      halo.visible=!!wrist&&Math.abs(p.frame-p.event.impact.frame)<=1;if(wrist){halo.position.copy(wrist);halo.quaternion.copy(camera.quaternion);}
+      halo.visible=!!wrist&&Math.abs(index-p.event.impact.frame)<=1;if(wrist){halo.position.copy(wrist);halo.quaternion.copy(camera.quaternion);}
       racketGroup.visible=v.racket&&!!wrist&&!!elbow;
       if(wrist&&elbow){racketGroup.position.copy(wrist);const axis=wrist.clone().sub(elbow).normalize();racketGroup.quaternion.setFromUnitVectors(up,axis);}
       let count=0;trailLines.visible=v.trail&&wristId>=0&&(p.focus==='all'||p.focus==='forearm');
-      if(trailLines.visible){const side=wristId===9?'left':'right';for(let f=first+1;f<=p.frame&&count<256;f++){
-        if(p.timestamps[f]-p.timestamps[f-1]>.05)continue;const a=wristCache.get(f-1)?.[side],b=wristCache.get(f)?.[side];if(!a||!b)continue;
+      if(trailLines.visible){const side=wristId===9?'left':'right';for(let f=first+1;f<=left&&count<256;f++){
+        if(!sampler.continuous(f-1,f))continue;const a=wristCache.get(f-1)?.[side],b=wristCache.get(f)?.[side];if(!a||!b)continue;
         a.toArray(trailPositions,count*6);b.toArray(trailPositions,count*6+3);count++;
-      }}trailGeometry.setDrawRange(0,count*2);trailGeometry.attributes.position.needsUpdate=true;
-      canvas.dataset.frame=String(p.frame);canvas.dataset.focus=p.focus;canvas.dataset.visibleJoints=String(pose.visibleCount);canvas.dataset.style=v.layer==='skeleton'?'skeleton':'solid';canvas.dataset.layer=v.layer;canvas.dataset.visibleMuscles=String(visibleMuscles);
+      }
+        const a=wristCache.get(left)?.[side];
+        if(renderTime>p.timestamps[left]&&a&&wrist&&count<256){
+          a.toArray(trailPositions,count*6);wrist.toArray(trailPositions,count*6+3);count++;
+        }
+      }trailGeometry.setDrawRange(0,count*2);trailGeometry.attributes.position.needsUpdate=true;
+      canvas.dataset.frame=String(index);canvas.dataset.focus=p.focus;canvas.dataset.visibleJoints=String(pose.visibleCount);canvas.dataset.style=v.layer==='skeleton'?'skeleton':'solid';canvas.dataset.layer=v.layer;canvas.dataset.visibleMuscles=String(visibleMuscles);
       canvas.dataset.wrist=wrist?`${wrist.x.toFixed(4)},${wrist.y.toFixed(4)},${wrist.z.toFixed(4)}`:'missing';
-      canvas.setAttribute('aria-label',`骨骼与肌肉 3D 动作回放，第 ${p.frame} 帧，${p.focus==='all'?'全身':regionNames[p.focus]}`);
+      canvas.setAttribute('aria-label',`骨骼与肌肉 3D 动作回放，第 ${index} 帧，${p.focus==='all'?'全身':regionNames[p.focus]}`);
+      return index;
     };
     const preset=(view:CameraView)=>{const d=height*1.85*Math.max(1,.8/camera.aspect);camera.position.copy(center).add(view==='camera'?new THREE.Vector3(0,height*.03,d):view==='back'?new THREE.Vector3(-d*.35,height*.12,-d*.94):new THREE.Vector3(d*.35,height*.12,d*.94));controls.target.copy(center);controls.update();};
     const zoom=(factor:number)=>{const offset=camera.position.clone().sub(controls.target);offset.setLength(THREE.MathUtils.clamp(offset.length()*factor,controls.minDistance,controls.maxDistance));camera.position.copy(controls.target).add(offset);controls.update();};
     runtime.current={update,preset,zoom};
     const resize=()=>{const rect=container.getBoundingClientRect();if(!rect.width||!rect.height)return;const old=camera.aspect;renderer.setSize(rect.width,rect.height,false);camera.aspect=rect.width/rect.height;camera.updateProjectionMatrix();if(Math.abs(old-camera.aspect)>.15){preset('oblique');setCameraView('oblique');}};
     const observer=new ResizeObserver(resize);observer.observe(container);resize();preset('oblique');setCameraView('oblique');
-    const animate=()=>{if(disposed||lost)return;controls.update();if(halo.visible)halo.quaternion.copy(camera.quaternion);renderer.render(scene,camera);raf=requestAnimationFrame(animate);};animate();
-    const onLost=(e:Event)=>{e.preventDefault();lost=true;cancelAnimationFrame(raf);setReady(false);setPlaying(false);setError('3D 图形连接中断，请重新加载，或切换到视频 / 2D 对照。');};canvas.addEventListener('webglcontextlost',onLost);
+    const animate=(now:number)=>{
+      if(disposed||lost)return;
+      const clock=playback.current;
+      if(rig&&clock){
+        const p=latest.current,{speed,loop,start,end}=transport.current,t=p.timestamps;
+        const limit=loop?t[end]:t[t.length-1];
+        clock.time+=Math.max(0,now-clock.previous)/1000*speed;
+        clock.previous=now;
+        if(clock.time>=limit){
+          if(loop&&t[end]>t[start])clock.time=t[start]+(clock.time-t[start])%(t[end]-t[start]);
+          else{clock.time=limit;pause();}
+        }
+        const next=update(clock.time);
+        if(next!==undefined&&next!==p.frame)p.onFrame(next);
+      }
+      controls.update();if(halo.visible)halo.quaternion.copy(camera.quaternion);renderer.render(scene,camera);raf=requestAnimationFrame(animate);
+    };raf=requestAnimationFrame(animate);
+    const onLost=(e:Event)=>{e.preventDefault();lost=true;cancelAnimationFrame(raf);setReady(false);pause();setError('3D 图形连接中断，请重新加载，或切换到视频 / 2D 对照。');};canvas.addEventListener('webglcontextlost',onLost);
     const raycaster=new THREE.Raycaster(),pointer=new THREE.Vector2();let down:{x:number;y:number}|null=null;
     const pointerDown=(e:PointerEvent)=>{down={x:e.clientX,y:e.clientY};};
     const pointerUp=(e:PointerEvent)=>{if(!down||Math.hypot(e.clientX-down.x,e.clientY-down.y)>5){down=null;return;}down=null;
@@ -135,7 +159,7 @@ export default function Body3DViewer(props:Props){
       // SkinnedMesh caches its bounds; refresh on picking after the pose moves.
       for(const mesh of pickable)mesh.computeBoundingSphere();
       const hit=raycaster.intersectObjects(pickable,false)[0];if(!hit)return;
-      const item=parts.find(o=>o.mesh===hit.object);if(!item)return;setPlaying(false);setSelected(item.part); 
+      const item=parts.find(o=>o.mesh===hit.object);if(!item)return;pause();setSelected(item.part);
       if(item.part.region)latest.current.onFocus(item.part.region);
     };canvas.addEventListener('pointerdown',pointerDown);canvas.addEventListener('pointerup',pointerUp);
     const keydown=(e:KeyboardEvent)=>{if(!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','+','-','=','0'].includes(e.key))return;e.preventDefault();
@@ -149,14 +173,21 @@ export default function Body3DViewer(props:Props){
         rig=createAnatomyRig(gltf.scene);
         for(const mesh of rig.meshes){(Array.isArray(mesh.material)?mesh.material:[mesh.material]).forEach(m=>m.dispose());const material=mat(new THREE.MeshStandardMaterial({roughness:.78,metalness:0,side:THREE.DoubleSide}));mesh.material=material;parts.push({mesh,part:describeAnatomyPart(mesh.userData,mesh.name),material});}
         disposeSource(gltf.scene);scene.add(rig.root);update();canvas.dataset.skinnedMeshes=String(rig.meshes.length);if(!lost)setReady(true);
-      }).catch(cause=>{if(disposed||cause?.name==='AbortError')return;setPlaying(false);setError('人体动作模型加载失败，请重新加载。也可切换到视频 / 2D 对照。');});
+      }).catch(cause=>{if(disposed||cause?.name==='AbortError')return;pause();setError('人体动作模型加载失败，请重新加载。也可切换到视频 / 2D 对照。');});
     return()=>{disposed=true;abort.abort();cancelAnimationFrame(raf);observer.disconnect();controls.dispose();runtime.current=null;
       canvas.removeEventListener('webglcontextlost',onLost);canvas.removeEventListener('pointerdown',pointerDown);canvas.removeEventListener('pointerup',pointerUp);canvas.removeEventListener('keydown',keydown);
       rig?.dispose();geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());renderer.dispose();renderer.forceContextLoss();canvas.remove();};
   },[sequence,attempt]);
 
-  function seek(next:number){setPlaying(false);onSeek(Math.max(0,Math.min(timestamps.length-1,next)));}
-  function toggle(){if(loop&&(frame<start||frame>=end))onFrame(start);else if(frame>=timestamps.length-1)onFrame(0);setPlaying(v=>!v);}
+  function seek(next:number){pause();onSeek(Math.max(0,Math.min(timestamps.length-1,next)));}
+  function toggle(){
+    if(playback.current){pause();return;}
+    let first=frame;
+    if(loop&&(first<start||first>=end))first=start;
+    else if(first>=timestamps.length-1)first=0;
+    if(first!==frame)onFrame(first);
+    playback.current={time:timestamps[first],previous:performance.now()};setPlaying(true);
+  }
   function chooseView(view:CameraView){setCameraView(view);runtime.current?.preset(view);}
   return <section className="body3d-card" aria-label="3D 身体运动视图">
     <div className="body3d-heading"><span><Icon name="bone" size={18}/>骨骼与肌肉 · 动作回放</span><span className="body3d-flag">{demo?'示意 3D（合成数据）':'示意 3D · 二维姿态驱动'}</span></div>

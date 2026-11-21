@@ -11,6 +11,7 @@ import {calculateMetrics} from '@badminton/metrics';
 import {Store} from './store.js';
 import {resolveWorkerPython,workerFailureMessage} from './worker-runtime.js';
 import {installPose3DJobs,type Pose3DOptions} from './pose3d-jobs.js';
+import {createReplayAdvisor, type ReplayAdvisorOptions} from './replay-profile.js';
 
 const ROOT=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../../..');
 const PIPELINE_VERSION=JSON.parse(await readFile(path.join(ROOT,'pipeline-version.json'),'utf8')).pipelineVersion as string;
@@ -18,7 +19,7 @@ const CHUNK_SIZE=4*1024*1024, MAX_SIZE=500*1024*1024;
 type Upload={id:string;fileName:string;size:number;mimeType:string;fingerprint:string;chunkSize:number;uploadedChunks:number[];videoId?:string;createdAt:string};
 type VideoRecord={id:string;fileName:string;inputPath:string;size:number};
 type RecordData={id:string;status:Analysis['status'];createdAt:string;fileName:string;analysis:Analysis;video?:VideoAsset;error?:string;errorDetail?:string;errorCode?:string;attempts:number;captureFps?:number};
-type Options={dataDir?:string;runWorker?:boolean;workerScript?:string;pose3d?:Pose3DOptions};
+type Options={dataDir?:string;runWorker?:boolean;workerScript?:string;pose3d?:Pose3DOptions;replayAdvisor?:ReplayAdvisorOptions};
 const bad=(message:string,status=400)=>Object.assign(new Error(message),{status});
 const wrap=(fn:(req:Request,res:Response)=>Promise<unknown>)=>(req:Request,res:Response,next:NextFunction)=>{Promise.resolve(fn(req,res)).catch(next);};
 const asFloat=(b:Buffer)=>new Float32Array(b.buffer.slice(b.byteOffset,b.byteOffset+b.byteLength));
@@ -74,6 +75,30 @@ export async function createApp(options:Options={}) {
   for(const r of await store.list<RecordData>('analyses')){if(r.status==='running'){r.status=r.attempts<2?'queued':'failed';r.analysis.status=r.status;r.error=r.status==='failed'?'任务多次被中断，请重试':undefined;await store.put('analyses',r.id,r);}}
   const timer=setInterval(()=>void drain().catch(console.error),1000);timer.unref();void drain();
   const pose3d=await installPose3DJobs(app,store,ROOT,{runWorker:options.runWorker,...options.pose3d});
+  const replayAdvisor = createReplayAdvisor(options.replayAdvisor);
+  app.get('/api/replay-profile/status', (_req, res) => res.json({configured: replayAdvisor.configured}));
+  app.post('/api/analyses/:id/replay-profile', wrap(async (req, res) => {
+    if (!req.is('application/json')) throw bad('请使用 JSON 请求回放优化', 415);
+    if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body) || Object.keys(req.body).length)
+      throw bad('回放优化只接受空的 JSON 对象');
+    const id = String(req.params.id);
+    const profile = await replayAdvisor.advise(id, async () => {
+      if (id === 'demo') {
+        const fixtures = path.join(ROOT, 'fixtures');
+        const [video, timestamps, keypoints] = await Promise.all([
+          readFile(path.join(fixtures, 'demo-video.json'), 'utf8'),
+          readFile(path.join(fixtures, 'timestamps.f32')),
+          readFile(path.join(fixtures, 'keypoints.f32')),
+        ]);
+        return {video: parseVideoAsset(JSON.parse(video)), timestamps: asFloat(timestamps), keypoints: asFloat(keypoints)};
+      }
+      const record = await getRecord(id);
+      if (record.status !== 'succeeded' || !record.video || !record.analysis.skeleton)
+        throw bad('分析完成后才能使用 AI 优化回放', 409);
+      return {video: record.video, ...await skeletonData(record.analysis)};
+    });
+    return res.json({profile});
+  }));
   app.get('/api/health',(_req,res)=>res.json({ok:true,schemaVersion:SCHEMA_VERSION,pipelineVersion:PIPELINE_VERSION,queue:active?'running':'idle'}));
   app.use('/api/fixtures',express.static(path.join(ROOT,'fixtures'),{fallthrough:false}));
   app.get('/api/demo',wrap(async(_req,res)=>{const [video,analysis]=await Promise.all(['demo-video.json','demo-analysis.json'].map(f=>readFile(path.join(ROOT,'fixtures',f),'utf8').then(JSON.parse)));res.json({video,analysis,demo:true});}));

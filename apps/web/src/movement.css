@@ -3,4 +3,36 @@
 
 .movement-reader{align-self:start}
 
+.replay-tuning {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 0 0 10px;
+  padding: 11px 14px;
+  border: 1px solid #354534;
+  border-radius: 10px;
+  background: #172219;
+}
+.replay-tuning label, .replay-tuning button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font: inherit;
+  font-size: 12px;
+}
+.replay-tuning label {color: #bac8b4;}
+.replay-tuning select, .replay-tuning button {
+  padding: 6px 9px;
+  border: 1px solid #485b3c;
+  border-radius: 6px;
+  background: #253320;
+  color: #d6e5c7;
+  font-size: 12px;
+  cursor: pointer;
+}
+.replay-tuning button:enabled:hover {background: #34472a;}
+.replay-tuning button:disabled {opacity: .65; cursor: default;}
+.replay-tuning small {color: #a1b29a; font-size: 11px; line-height: 1.6; overflow-wrap: anywhere;}
+
 @media(max-width:600px){.movement-view-switch{flex-wrap:wrap}.movement-view-switch button{flex:1;padding:8px 6px;white-space:nowrap}.movement-view-switch>span{flex-basis:100%;text-align:right;padding:2px 5px 1px}}

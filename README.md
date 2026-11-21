@@ -32,6 +32,18 @@ npm start
 
 构建后由网关同时提供网页，打开 http://127.0.0.1:8787。
 
+## 启用 DeepSeek 回放优化
+
+打开「身体协同 → 3D 动作回放」。默认的「均衡」档位在本机对连续观测做平滑和帧间插值。可以直接切换到「保留快速动作」观察击球瞬间，或用「优先稳定」减轻抖动。已有分析记录也可以使用。
+
+在项目根目录的 `.env` 设置网关密钥，或通过启动网关的环境传入，然后重启服务。
+
+```dotenv
+DEEPSEEK_API_KEY=你的服务端密钥
+```
+
+点击「AI 优化回放」后，网关把帧率、遮挡比例、关节运动变化等汇总值发送给模型，播放器随即应用建议档位。视频和逐帧坐标保留在本机，网关使用密钥向模型服务认证。默认使用 `deepseek-flash`。使用其他兼容服务时，同时设置 `DEEPSEEK_BASE_URL` 和 `DEEPSEEK_MODEL`。服务需要支持 Chat Completions 和 JSON 输出。详见 [DeepSeek 接口说明](https://api-docs.deepseek.com/)。
+
 ## 启用真实视频分析
 
 需要 Python 3.10+、ffmpeg/ffprobe、RTMLib 及其 ONNX 权重。完整说明见 [worker/README.md](worker/README.md)。
@@ -103,6 +115,8 @@ npm run test:pose3d-evaluation
 | `GET /api/analyses/:id` | 状态和结果 |
 | `POST /api/analyses/:id/retry` | 重试失败任务 |
 | `POST /api/analyses/:id/annotations` | 保存人工击球帧，传入 `{ "frame": 120 }` |
+| `GET /api/replay-profile/status` | 查看网关是否已配置 AI 回放选档 |
+| `POST /api/analyses/:id/replay-profile` | 根据已完成分析的姿态质量请求回放档位，演示使用 `demo` |
 | `POST /api/analyses/:id/pose3d` | 独立 3D 研究子任务；默认禁用，支持 swing-windows / manual / full |
 | `GET /api/analyses/:id/pose3d` | 查询 3D 状态、窗口、来源、质量或错误 |
 | `POST /api/analyses/:id/pose3d/retry` | 仅重试失败或质量拒绝的 3D 子任务 |

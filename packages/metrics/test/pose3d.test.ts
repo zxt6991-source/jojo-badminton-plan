@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {createPose3DSequence} from '../../../apps/web/src/pose3d.ts';
+import {createPose3DSequence,createReplaySampler} from '../../../apps/web/src/pose3d.ts';
 import {CWB_65 as K,type VideoAsset} from '../../schema/src/index.ts';
 
 function fixture(frameCount=3) {
@@ -96,4 +96,34 @@ test('invalid normalized coordinates and confidence values cannot enter the 3D s
   const frame=createPose3DSequence(f.video,f.points).frame(0);
   for(const k of [7,8,9])assert.equal(frame.joints[k].visible,false);
   assert.equal(frame.joints[10].visible,true);
+});
+
+test('slow motion follows actual capture times between samples without crossing missing data', () => {
+  const f = fixture(5), times = Float32Array.of(0, .02, .05, .25, .28);
+  for (let i=0;i<5;i++) f.set(i,10,.1+times[i],.4);
+  f.set(2,9,.32,.5,.2);
+  const seq = createPose3DSequence(f.video,f.points);
+  const sampler = createReplaySampler(seq,times,30,'balanced');
+  const mid = sampler.atTime((times[1]+times[2])/2);
+  near(mid.pose.joints[10].position[0], (seq.frame(1).joints[10].position[0]+seq.frame(2).joints[10].position[0])/2);
+  assert.equal(mid.pose.joints[9].visible,false);
+  assert.equal(sampler.atTime(.12).pose.visibleCount,0);
+  assert.equal(sampler.atTime(times[3]).pose.joints[9].visible,true);
+  assert.deepEqual(sampler.atTime((times[1]+times[2])/2),mid);
+});
+
+test('profile strength limits single-frame display corrections and preserves source samples', () => {
+  const f = fixture(3), times=Float32Array.of(0,.02,.04);
+  f.set(1,10,.69,.5);
+  const seq = createPose3DSequence(f.video,f.points), raw = seq.frame(1);
+  const x = raw.joints[10].position[0];
+  const adjustment = (profile:'responsive'|'balanced'|'steady') =>
+    x-createReplaySampler(seq,times,50,profile).frame(1).joints[10].position[0];
+  assert.ok(0<adjustment('responsive')&&adjustment('responsive')<adjustment('balanced'));
+  assert.ok(adjustment('balanced')<adjustment('steady'));
+  f.set(1,10,.99,.1);
+  const peakSeq = createPose3DSequence(f.video,f.points), peak=peakSeq.frame(1).joints[10].position;
+  const displayed=createReplaySampler(peakSeq,times,50,'steady').frame(1).joints[10].position;
+  assert.ok(Math.hypot(peak[0]-displayed[0],peak[1]-displayed[1])<=.050001);
+  near(f.points[195+10*3],.99);
 });

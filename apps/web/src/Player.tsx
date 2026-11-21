@@ -1,19 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Analysis, VideoAsset } from '@badminton/schema';
 import {REGION_COLORS,type BodyRegion} from '@badminton/metrics';
+import {closestFrame} from './pose3d';
 import Icon from './Icon';
+
+export {closestFrame} from './pose3d';
 
 export const bodyEdges = [[5,6],[5,7],[7,9],[6,8],[8,10],[5,11],[6,12],[11,12],[11,13],[13,15],[12,14],[14,16],[0,1],[0,2],[1,3],[2,4],[15,17],[17,18],[15,19],[16,20],[20,21],[16,22]];
 const allEdges = [...bodyEdges];
 for (const start of [23,44]) for (let finger = 0; finger < 5; finger++) {
   const base = start + 1 + finger * 4;
   allEdges.push([start,base],[base,base+1],[base+1,base+2],[base+2,base+3]);
-}
-
-export function closestFrame(timestamps: Float32Array, time: number) {
-  let lo = 0, hi = timestamps.length - 1;
-  while (lo < hi) { const mid = (lo + hi) >>> 1; if (timestamps[mid] < time) lo = mid + 1; else hi = mid; }
-  return lo > 0 && Math.abs(timestamps[lo-1] - time) < Math.abs(timestamps[lo] - time) ? lo-1 : lo;
 }
 
 function court(ctx: CanvasRenderingContext2D, width: number, height: number) {

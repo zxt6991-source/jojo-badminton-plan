@@ -1,8 +1,9 @@
 import {lazy,Suspense,useMemo,useState,type CSSProperties,type ReactNode} from 'react';
-import type {Analysis,SwingEvent,VideoAsset} from '@badminton/schema';
+import type {Analysis,ReplayProfile,SwingEvent,VideoAsset} from '@badminton/schema';
 import {computeMovementAnalysis,REGION_COLORS,type BodyRegion,type MovementPhaseId} from '@badminton/metrics';
 import Icon from './Icon';
 import Pose3DNotice from './Pose3DNotice';
+import ReplayTuning from './ReplayTuning';
 import './movement.css';
 const Body3DViewer=lazy(()=>import('./Body3DViewer'));
 
@@ -27,6 +28,7 @@ const relative=(time:number,impact:number)=>Math.abs(time-impact)<.005?'击球�
 
 export default function MovementInsight({video,analysis,event,points,timestamps,frame,onSeek,onFrame,seekToken,demo,focus,onFocus,children}:Props){
   const [spatialView,setSpatialView]=useState<'3d'|'video'>('3d');
+  const [replayProfile,setReplayProfile]=useState<ReplayProfile>('balanced');
   const motion=useMemo(()=>computeMovementAnalysis(video,analysis,event,timestamps,points),[video,analysis,event,timestamps,points]);
   const currentTime=timestamps[frame]??event.impact.tSec;
   const start=event.phases.backswingStartFrame,end=event.phases.followThroughEndFrame;
@@ -46,7 +48,8 @@ export default function MovementInsight({video,analysis,event,points,timestamps,
           <button className={spatialView==='video'?'selected':''} aria-pressed={spatialView==='video'} onClick={()=>setSpatialView('video')}>{demo?'2D 骨架对照':'视频对照'}</button>
           <span>共用同一时间轴</span>
         </div>
-        {spatialView==='3d'?<Suspense fallback={<div className="body3d-import-loading" role="status"><span className="spinner"/>正在加载 3D 动作人体…</div>}><Body3DViewer video={video} analysis={analysis} event={event} points={points} timestamps={timestamps} frame={frame} onFrame={onFrame} onSeek={onSeek} seekToken={seekToken} focus={focus} onFocus={onFocus} demo={demo}/></Suspense>:children}
+        <div hidden={spatialView!=='3d'}><ReplayTuning analysisId={analysis.id} profile={replayProfile} onChange={setReplayProfile}/></div>
+        {spatialView==='3d'?<Suspense fallback={<div className="body3d-import-loading" role="status"><span className="spinner"/>正在加载 3D 动作人体…</div>}><Body3DViewer video={video} analysis={analysis} event={event} points={points} timestamps={timestamps} frame={frame} onFrame={onFrame} onSeek={onSeek} seekToken={seekToken} focus={focus} onFocus={onFocus} demo={demo} replayProfile={replayProfile}/></Suspense>:children}
         {spatialView==='video'&&<div className="movement-color-key"><span>按部位看</span><button className={focus==='all'?'active':''} aria-pressed={focus==='all'} onClick={()=>onFocus('all')}>全身</button>{(Object.keys(labels) as BodyRegion[]).map(id=><button key={id} style={{'--region-color':REGION_COLORS[id]} as CSSProperties} className={focus===id?'active':''} aria-pressed={focus===id} onClick={()=>onFocus(focus===id?'all':id)}><i/>{labels[id]}</button>)}</div>}
       </div>
       <aside className="movement-reader">

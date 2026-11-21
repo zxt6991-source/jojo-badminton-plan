@@ -32,7 +32,8 @@ const REST:Record<number,THREE.Vector3>={
   17:v(.085,.028,.10),20:v(-.085,.028,.10),
 };
 const pelvisRest=v(0,.865,-.015),shoulderRest=v(0,1.398,-.025),headRest=v(0,1.49,-.025);
-const SCALE=.56/shoulderRest.distanceTo(pelvisRest);
+const REST_TORSO_LENGTH=shoulderRest.distanceTo(pelvisRest);
+const SCALE=.56/REST_TORSO_LENGTH;
 const names:BoneName[]=['pelvis','torso','head','upperArmL','forearmL','handL','thighL','shinL','footL','upperArmR','forearmR','handR','thighR','shinR','footR'];
 const index=new Map(names.map((name,i)=>[name,i]));
 const pivot:Record<BoneName,THREE.Vector3>={pelvis:pelvisRest,torso:pelvisRest,head:headRest,
@@ -41,6 +42,28 @@ const pivot:Record<BoneName,THREE.Vector3>={pelvis:pelvisRest,torso:pelvisRest,h
 const sideBones=(left:boolean)=>left?
   {upper:'upperArmL',fore:'forearmL',hand:'handL',thigh:'thighL',shin:'shinL',foot:'footL'} as const:
   {upper:'upperArmR',fore:'forearmR',hand:'handR',thigh:'thighR',shin:'shinR',foot:'footR'} as const;
+
+// All limits below are display constraints in radians. Neither flexion depth
+// nor rotation around a limb axis is observable from the image points.
+const MAX_ELBOW_FLEXION=2.7, MAX_KNEE_FLEXION=2.6, MAX_FOOT_SWING=.7;
+
+/** Route the rotation through a stable normal to the image instead of taking
+ * a new shortest arc directly from rest on every frame. That arc can reverse
+ * the entire skin around the bone when an overhead arm passes its antipode. */
+function armRotation(rest:THREE.Vector3, direction:THREE.Vector3, parent:THREE.Quaternion, facing:THREE.Vector3) {
+  const inherited=rest.clone().normalize().applyQuaternion(parent);
+  return new THREE.Quaternion().setFromUnitVectors(facing,direction)
+    .multiply(new THREE.Quaternion().setFromUnitVectors(inherited,facing)).multiply(parent);
+}
+
+/** Orient the model's transverse axis along the common knee hinge so that
+ * the bone surfaces, patella and muscles bend in the same plane as the joints. */
+function legOrientation(shaft:THREE.Vector3, hinge:THREE.Vector3) {
+  const up=shaft.clone().normalize().negate();
+  const side=hinge.clone().projectOnPlane(up).normalize();
+  const front=new THREE.Vector3().crossVectors(side,up);
+  return new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(side,up,front));
+}
 
 function retarget(pose:Pose3DFrame):Retarget {
   const joints:JointMap={};for(let i=0;i<65;i++)joints[i]=null;
@@ -87,27 +110,83 @@ function retarget(pose:Pose3DFrame):Retarget {
     transforms.head={position:headBase,rotation:headRotation,valid:true};
     joints[0]=REST[0].clone().sub(headRest).multiplyScalar(SCALE).applyQuaternion(headRotation).add(headBase);
   }
-  const segment=(name:BoneName,a:number,b:number,parent:BoneName,limit?:number,alongParent?:THREE.Vector3)=>{
-    const from=read(a),to=read(b),anchor=joints[a];if(!from||!to||!anchor)return;
-    const direction=to.clone().sub(from);if(direction.length()<torsoLength*.025)return;direction.normalize();
-    const restDirection=REST[b].clone().sub(REST[a]),length=restDirection.length()*SCALE;
-    const parentRotation=transforms[parent].rotation;
-    const reference=(alongParent??restDirection).clone().normalize().applyQuaternion(parentRotation);
-    if(limit!==undefined){
-      const swing=new THREE.Quaternion().setFromUnitVectors(reference,direction),angle=swing.angleTo(new THREE.Quaternion());
-      if(angle>limit)direction.copy(reference).applyQuaternion(new THREE.Quaternion().slerp(swing,limit/angle));
+  const setSegment=(name:BoneName,a:number,b:number,direction:THREE.Vector3,rotation:THREE.Quaternion)=>{
+    const anchor=joints[a]!;
+    transforms[name]={position:anchor.clone(),rotation,valid:true};
+    joints[b]=anchor.clone().addScaledVector(direction,REST[a].distanceTo(REST[b])*SCALE);
+  };
+  const arm=(name:BoneName,a:number,b:number,parent:BoneName,proximal?:number)=>{
+    const from=read(a),to=read(b);
+    if(!from||!to||!joints[a])return;
+    const projection=to.sub(from),rest=REST[b].clone().sub(REST[a]);
+    const projectedFraction=(projection.length()/torsoLength)/(rest.length()/REST_TORSO_LENGTH);
+    // Near end-on, a few pixels of wrist noise can reverse the projected
+    // shaft. Taper its influence towards a schematic forward direction.
+    const angleFromFacing=Math.PI/2*smooth(0,1,projectedFraction);
+    const direction=projection.normalize().multiplyScalar(Math.sin(angleFromFacing)).addScaledVector(z,Math.cos(angleFromFacing));
+    if(proximal!==undefined){
+      const axis=joints[a]!.clone().sub(joints[proximal]!).normalize(),dot=axis.dot(direction);
+      const limit=Math.cos(MAX_ELBOW_FLEXION);
+      if(dot<limit){
+        // At a closed elbow the two planar clipping directions exchange sides.
+        // Bias the perpendicular towards facing as the observed angle closes.
+        const tangent=direction.clone().addScaledVector(axis,-dot);
+        tangent.addScaledVector(z.clone().projectOnPlane(axis),Math.sin(MAX_ELBOW_FLEXION)-tangent.length()).normalize();
+        direction.copy(axis).multiplyScalar(limit).addScaledVector(tangent,Math.sin(MAX_ELBOW_FLEXION));
+      }
     }
-    // Transport the parent's orientation down the chain. Solving every bone
-    // independently against the torso introduces unrelated elbow/knee twists.
-    const rotation=new THREE.Quaternion().setFromUnitVectors(restDirection.normalize().applyQuaternion(parentRotation),direction).multiply(parentRotation);
-    transforms[name]={position:anchor.clone(),rotation,valid:true};joints[b]=anchor.clone().addScaledVector(direction,length);
+    setSegment(name,a,b,direction,armRotation(rest,direction,transforms[parent].rotation,z));
+  };
+  const leg=(bones:ReturnType<typeof sideBones>,h:number,k:number,a:number,t:number)=>{
+    const hipPoint=read(h),kneePoint=read(k),anklePoint=read(a);
+    if(!hipPoint||!kneePoint)return;
+    const thigh=kneePoint.clone().sub(hipPoint);
+    if(thigh.length()<torsoLength*.025)return;
+    thigh.normalize();
+    const restThigh=REST[k].clone().sub(REST[h]),restShin=REST[a].clone().sub(REST[k]);
+    const thighBind=legOrientation(restThigh,v(1,0,0)).invert();
+    const shin=anklePoint?.clone().sub(kneePoint);
+    if(!shin||shin.length()<torsoLength*.025){
+      const hinge=z.clone().cross(thigh);
+      setSegment(bones.thigh,h,k,thigh,legOrientation(thigh,hinge).multiply(thighBind));
+      return;
+    }
+    shin.normalize();
+    const upperLength=restThigh.length()*SCALE,lowerLength=restShin.length()*SCALE;
+    const target=thigh.clone().multiplyScalar(upperLength).addScaledVector(shin,lowerLength);
+    const axis=target.clone().normalize();
+    const minReach=Math.sqrt(upperLength**2+lowerLength**2+2*upperLength*lowerLength*Math.cos(MAX_KNEE_FLEXION));
+    const reach=THREE.MathUtils.clamp(target.length(),minReach,upperLength+lowerLength);
+    const along=(upperLength**2-lowerLength**2+reach**2)/(2*reach);
+    const height=Math.sqrt(Math.max(0,upperLength**2-along**2));
+    // Keep the original reachable ankle target; solve the fixed-length knee
+    // forward of the hip–ankle line. A bounded turn towards the observed
+    // knee permits leg turnout without allowing a sideways/reversed hinge.
+    const side=z.clone().cross(axis);
+    const turnout=THREE.MathUtils.clamp(thigh.dot(side),-.55,.55);
+    const pole=z.clone().multiplyScalar(Math.sqrt(1-turnout**2)).addScaledVector(side,turnout);
+    const hinge=pole.clone().cross(axis);
+    const kneeOffset=axis.clone().multiplyScalar(along).addScaledVector(pole,height);
+    const upper=kneeOffset.clone().normalize();
+    const lower=axis.multiplyScalar(reach).sub(kneeOffset).normalize();
+    setSegment(bones.thigh,h,k,upper,legOrientation(upper,hinge).multiply(thighBind));
+    setSegment(bones.shin,k,a,lower,legOrientation(lower,hinge).multiply(legOrientation(restShin,v(1,0,0)).invert()));
+
+    const toe=read(t);
+    if(!toe)return;
+    const observed=toe.sub(anklePoint!);
+    if(observed.length()<torsoLength*.025)return;
+    const parent=transforms[bones.shin].rotation;
+    const rest=REST[t].clone().sub(REST[a]).normalize().applyQuaternion(parent);
+    const swing=new THREE.Quaternion().setFromUnitVectors(rest,observed.normalize());
+    const rotation=new THREE.Quaternion().rotateTowards(swing,MAX_FOOT_SWING);
+    setSegment(bones.foot,a,t,rest.applyQuaternion(rotation),rotation.multiply(parent));
   };
   for(const left of [true,false]){
     const b=sideBones(left),s=left?5:6,e=left?7:8,w=left?9:10,h=left?11:12,k=left?13:14,a=left?15:16,t=left?17:20;
-    segment(b.upper,s,e,'torso');segment(b.fore,e,w,b.upper,2.7,REST[e].clone().sub(REST[s]));
-    segment(b.thigh,h,k,'pelvis');segment(b.shin,k,a,b.thigh,2.6,REST[k].clone().sub(REST[h]));
+    arm(b.upper,s,e,'torso');arm(b.fore,e,w,b.upper,s);
+    leg(b,h,k,a,t);
     if(joints[w])transforms[b.hand]={position:joints[w]!.clone(),rotation:transforms[b.fore].rotation.clone(),valid:true};
-    segment(b.foot,a,t,b.shin,.7);
   }
   return{joints,transforms};
 }

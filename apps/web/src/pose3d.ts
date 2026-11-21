@@ -1,4 +1,4 @@
-import {CWB_65 as K, type VideoAsset} from '@badminton/schema';
+import {CWB_65 as K, type ReplayProfile, type VideoAsset} from '@badminton/schema';
 
 export type Vec3 = [number, number, number];
 export interface Pose3DPoint {
@@ -22,6 +22,79 @@ export interface Pose3DSequence {
   center: Vec3;
   /** Approximate display envelope for camera framing, not stature in meters. */
   height: number;
+}
+
+/** Shared by the video overlay and the 3D transport. */
+function nextFrame(timestamps:Float32Array,time:number):number {
+  let low=0,high=timestamps.length-1;
+  while(low<high){
+    const middle=(low+high)>>>1;
+    if(timestamps[middle]<time)low=middle+1;else high=middle;
+  }
+  return low;
+}
+export function closestFrame(timestamps:Float32Array,time:number):number {
+  const right=nextFrame(timestamps,time);
+  return right>0&&time-timestamps[right-1]<timestamps[right]-time?right-1:right;
+}
+
+const replayFilters:Record<ReplayProfile,{strength:number;maxCorrection:number}>={
+  responsive:{strength:.16,maxCorrection:.012},
+  balanced:{strength:.4,maxCorrection:.028},
+  steady:{strength:.65,maxCorrection:.05},
+};
+const hiddenJoint=():Pose3DPoint=>({position:[NaN,NaN,NaN],confidence:0,visible:false});
+
+/** Stateless in playback order. Filter in display space, leaving measured samples and metrics intact. */
+export function createReplaySampler(sequence:Pose3DSequence,timestamps:Float32Array,captureFps:number,profile:ReplayProfile){
+  const filter=replayFilters[profile];
+  // Allow an ordinary interval for low-frame-rate videos, with a hard cap on unsupported motion.
+  const maxInterval=Math.min(.125,Math.max(.05,1.5/captureFps));
+  const continuous=(left:number,right:number)=>timestamps[right]-timestamps[left]<=maxInterval+1e-6;
+  const cache=new Map<number,Pose3DFrame>();
+  function frame(index:number):Pose3DFrame {
+    const cached=cache.get(index);
+    if(cached)return cached;
+    let pose=sequence.frame(index);
+    if(index>0&&index<timestamps.length-1&&continuous(index-1,index)&&continuous(index,index+1)){
+      const before=sequence.frame(index-1),after=sequence.frame(index+1);
+      const fraction=(timestamps[index]-timestamps[index-1])/(timestamps[index+1]-timestamps[index-1]);
+      const joints=pose.joints.map((point,id):Pose3DPoint=>{
+        const left=before.joints[id],right=after.joints[id];
+        if(!point.visible||!left.visible||!right.visible)return point;
+        const [x,y,z]=point.position;
+        const dx=left.position[0]+fraction*(right.position[0]-left.position[0])-x;
+        const dy=left.position[1]+fraction*(right.position[1]-left.position[1])-y;
+        // Bound the displacement in fixed rig units to preserve fast changes around impact.
+        const weight=Math.min(filter.strength,filter.maxCorrection/Math.max(1e-8,Math.hypot(dx,dy)));
+        return {...point,position:[x+weight*dx,y+weight*dy,z]};
+      });
+      pose={...pose,joints};
+    }
+    // Only the current frame, its neighbors and the short wrist trail are needed during playback.
+    if(cache.size>=96)cache.delete(cache.keys().next().value!);
+    cache.set(index,pose);
+    return pose;
+  }
+  function atTime(time:number){
+    const right=nextFrame(timestamps,time);
+    if(right===0||time>=timestamps[right])return {index:right,left:right,pose:frame(right)};
+    const left=right-1,fraction=(time-timestamps[left])/(timestamps[right]-timestamps[left]);
+    const index=fraction<.5?left:right;
+    const a=frame(left),b=frame(right),connected=continuous(left,right);
+    let visibleCount=0;
+    const joints=a.joints.map((p,id):Pose3DPoint=>{
+      const q=b.joints[id];
+      if(!connected||!p.visible||!q.visible)return hiddenJoint();
+      visibleCount++;
+      const [x,y,z]=p.position;
+      return {visible:true,confidence:Math.min(p.confidence,q.confidence),position:[
+        x+(q.position[0]-x)*fraction,y+(q.position[1]-y)*fraction,z+(q.position[2]-z)*fraction,
+      ]};
+    });
+    return {index,left,pose:{...a,joints,visibleCount}};
+  }
+  return {frame,atTime,continuous};
 }
 
 const MIN_CONFIDENCE = 0.5;

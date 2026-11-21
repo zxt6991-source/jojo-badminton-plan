@@ -181,6 +181,82 @@ test('bad endpoint detections cannot fold elbows and knees closed or reverse fee
   }finally{rig.dispose();}
 });
 
+test('planar arm alignment preserves neutral roll and crosses an overhead swing continuously',()=>{
+  const rig=createAnatomyRig(new THREE.Group());
+  try{
+    for(const back of [false,true]){
+      const pose=planarPose(back),shoulder=pose.joints[5].position;
+      const neutral=new THREE.Vector2((back?-1:1)*.052,-.295).normalize();
+      const setAim=(angle:number)=>{
+        const axis=neutral.clone().rotateAround(new THREE.Vector2(),angle);
+        pose.joints[7].position=[shoulder[0]+.45*axis.x,shoulder[1]+.45*axis.y,0];
+        rig.update(pose);
+      };
+      setAim(0);
+      // Flattening the atlas humerus' tiny rest Z offset needs <2° of swing.
+      assert.ok(bone(rig,'upperArmL').quaternion.angleTo(bone(rig,'torso').quaternion)<THREE.MathUtils.degToRad(2));
+      setAim(Math.PI-.015);
+      const before=bone(rig,'upperArmL').quaternion.clone();
+      setAim(Math.PI+.015);
+      assert.ok(before.angleTo(bone(rig,'upperArmL').quaternion)<THREE.MathUtils.degToRad(4));
+    }
+  }finally{rig.dispose();}
+});
+
+test('an end-on forearm tolerates a reversed short projection and a fully closed elbow retains length',()=>{
+  const rig=createAnatomyRig(new THREE.Group());
+  try{
+    const pose=planarPose(),elbow=pose.joints[7].position;
+    const reference=rig.sample(pose),length=reference[9]!.distanceTo(reference[7]!);
+    let previous:THREE.Quaternion|undefined;
+    for(const dx of [-.018,0,.018]){
+      pose.joints[9].position=[elbow[0]+dx,elbow[1],0];
+      rig.update(pose);
+      const rotation=bone(rig,'forearmL').quaternion;
+      if(previous)assert.ok(previous.angleTo(rotation)<THREE.MathUtils.degToRad(3));
+      near(rig.jointPositions[9]!.distanceTo(rig.jointPositions[7]!),length);
+      previous=rotation.clone();
+    }
+    // Exactly antiparallel image rays, and tiny noise on either side, must
+    // yield a finite elbow plane and the same fixed distal bone radius.
+    pose.joints[7].position=[.2,.15,0];
+    for(const dx of [-.001,0,.001]){
+      pose.joints[9].position=[.2+dx,.56,0];
+      rig.update(pose);
+      const joints=rig.jointPositions;
+      near(joints[9]!.distanceTo(joints[7]!),length);
+      const upper=joints[7]!.clone().sub(joints[5]!),lower=joints[9]!.clone().sub(joints[7]!);
+      near(upper.angleTo(lower),2.7);
+      assert.ok(bone(rig,'forearmL').matrixWorld.elements.every(Number.isFinite));
+    }
+  }finally{rig.dispose();}
+});
+
+test('a leg bent across the image keeps its reachable ankle and bends in the forward anatomical plane',()=>{
+  const rig=createAnatomyRig(new THREE.Group());
+  try{
+    for(const back of [false,true]){
+      const pose=planarPose(back),sign=back?-1:1;
+      const reference=rig.sample(pose);
+      const thighLength=reference[11]!.distanceTo(reference[13]!),shinLength=reference[13]!.distanceTo(reference[15]!);
+      pose.joints[13].position=[sign*.39,-.26,0];pose.joints[15].position=[sign*.09,-.54,0];
+      rig.update(pose);
+      const hip=rig.jointPositions[11]!,knee=rig.jointPositions[13]!,ankle=rig.jointPositions[15]!;
+      const observed=(id:number)=>new THREE.Vector3(...pose.joints[id].position).setZ(0);
+      const thigh=observed(13).sub(observed(11)).normalize(),shin=observed(15).sub(observed(13)).normalize();
+      const target=hip.clone().addScaledVector(thigh,thighLength).addScaledVector(shin,shinLength);
+      near(ankle.distanceTo(target),0);
+      near(knee.distanceTo(hip),thighLength);near(knee.distanceTo(ankle),shinLength);
+      const axis=target.sub(hip).normalize(),bow=knee.clone().sub(hip).projectOnPlane(axis);
+      assert.ok(bow.length()>.1,'exercise a visibly flexed knee');
+      assert.ok(bow.normalize().dot(forward(rig,'pelvis'))>.8,'knee bends forward in either facing');
+      const thighX=new THREE.Vector3(1,0,0).applyQuaternion(bone(rig,'thighL').quaternion);
+      const shinX=new THREE.Vector3(1,0,0).applyQuaternion(bone(rig,'shinL').quaternion);
+      assert.ok(thighX.angleTo(shinX)<.02,'the two surfaces share a transverse hinge');
+    }
+  }finally{rig.dispose();}
+});
+
 test('random-access pose sampling and narrow torso fallback do not retain another frame',()=>{
   const rig=createAnatomyRig(new THREE.Group());
   try{

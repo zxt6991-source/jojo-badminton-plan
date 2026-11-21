@@ -6,6 +6,11 @@ export const LEGACY_SCHEMA_VERSION = '0.1.0' as const;
 export type ViewAngle = 'side' | 'back' | 'front' | 'oblique' | 'unknown';
 export type SwingType = 'smash' | 'clear' | 'drop' | 'drive' | 'net' | 'unknown';
 export type PoseSource = 'mono-2d' | 'mono-3d' | 'multi-view' | 'imu-fused';
+export const REPLAY_PROFILES = ['balanced', 'steady', 'responsive'] as const;
+export type ReplayProfile = typeof REPLAY_PROFILES[number];
+export function isReplayProfile(value: unknown): value is ReplayProfile {
+  return REPLAY_PROFILES.some(profile => profile === value);
+}
 export interface VideoAsset {
   id: string; storageKey: string; proxyKey?: string; width: number; height: number;
   captureFps: number; frameCount: number; durationSec: number; hasAudio: boolean;
